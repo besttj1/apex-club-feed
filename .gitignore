@@ -1,0 +1,9 @@
+node_modules/
+temp.txt
+*.png
+!logo.png
+.whatsapp_session
+credentials.json
+token.json
+.env
+subscribers.json
