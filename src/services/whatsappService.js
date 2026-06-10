@@ -202,11 +202,14 @@ async function startMessageListener() {
                         const identifier = phone || title;
                         console.log(`📱 Saved contact: ${title} — identifier: ${identifier}`);
 
+                        // check if already subscribed — if not, send welcome message
+                        const alreadySaved = isAlreadySubscribed(identifier);
+
                         messageQueue.push({ 
                             title, 
                             phone: identifier, 
                             messageText: '', 
-                            isNewSubscriber: false 
+                            isNewSubscriber: !alreadySaved
                         });
 
                         await resetPage();
