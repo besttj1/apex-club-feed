@@ -173,7 +173,46 @@ async function startMessageListener() {
                     console.log(`📥 Subscriber message queued: ${phone}`);
 
                 } else {
-                    console.log(`⏭️ Skipping unrecognized contact: ${title}`);
+                    // saved contact — use title as identifier since phone may not be extractable
+                    // works for both regular and business WhatsApp saved contacts
+                    
+                    // try to get phone number by clicking contact info panel
+                    const chatElement = await page.$(`span[title="${title}"]`);
+                    if (chatElement) {
+                        await chatElement.click();
+                        await new Promise(resolve => setTimeout(resolve, 1500));
+
+                        // click contact header to open info panel
+                        await page.click('div[data-testid="conversation-info-header"]');
+                        await new Promise(resolve => setTimeout(resolve, 1500));
+
+                        // try to find phone number in contact info panel
+                        const phone = await page.evaluate(() => {
+                            const spans = document.querySelectorAll('span[data-testid="selectable-text"]');
+                            for (const span of spans) {
+                                const text = span.textContent.trim().replace(/\s/g, '');
+                                if (/^\+?\d{10,15}$/.test(text)) {
+                                    return text.replace(/[\s+]/g, '');
+                                }
+                            }
+                            return null;
+                        });
+
+                        // if phone found use it, otherwise use contact name as identifier
+                        const identifier = phone || title;
+                        console.log(`📱 Saved contact: ${title} — identifier: ${identifier}`);
+
+                        messageQueue.push({ 
+                            title, 
+                            phone: identifier, 
+                            messageText: '', 
+                            isNewSubscriber: false 
+                        });
+
+                        await resetPage();
+                    } else {
+                        console.log(`⏭️ Could not find chat: ${title}`);
+                    }
                 }
             }
         } catch (err) {
