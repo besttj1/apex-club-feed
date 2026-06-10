@@ -1,7 +1,8 @@
 {
     "targetAccounts": [
         "FabrizioRomano",
-        "GoalAlertHQ"
+        "GoalAlertHQ",
+        "David_Ornstein"
     ],
     "keywords": [
         "real madrid",
@@ -15,8 +16,42 @@
         "city",
         "psg",
         "goal",
+        "score",
         "⚽",
         "tottenham",
-        "borussia dortmund"
+        "borussia dortmund",
+        "juventus",
+        "ac milan",
+        "inter milan",
+        "napoli",
+        "roma",
+        "lazio",
+        "atalanta",
+        "fiorentina",
+        "france",
+        "spain",
+        "argentina",
+        "england",
+        "portugal",
+        "brazil",
+        "morocco",
+        "netherlands",
+        "belgium",
+        "germany",
+        "croatia",
+        "colombia",
+        "mexico",
+        "senegal",
+        "uruguay",
+        "united states",
+        "usa",
+        "japan",
+        "switzerland",
+        "iran",
+        "turkey",
+        "turkiye",
+        "ecuador",
+        "austria",
+        "south korea"
     ]
 }

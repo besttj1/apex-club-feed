@@ -76,6 +76,16 @@ function connectToStream() {
                 const hasKeyword = keywords.some(kw => textContent.toLowerCase().includes(kw.toLowerCase()));
                 if (!hasKeyword) continue;
 
+                // skip if GoalAlertHQ is reposting content from accounts we already monitor
+                // prevents duplicate news when GoalAlertHQ reposts FabrizioRomano etc.
+                const isRedundantRepost = targets.some(acc => 
+                    textContent.toLowerCase().includes(`—@${acc.toLowerCase()}`)
+                );
+                if (isRedundantRepost) {
+                    console.log(`⏭️ Skipping redundant repost from @${authorHandle}`);
+                    continue;
+                }
+
                 // mark tweet as processed before adding to queue to prevent race conditions
                 processedTweets.add(tweetId);
 
