@@ -73,3 +73,11 @@ export async function handleNewSubscriber(phone) {
 }
 
 
+// save to subscribers.json only — without Google Contacts
+// used for already saved contacts who are new to ACF
+export async function handleKnownContact(phone) {
+    if (isAlreadySubscribed(phone)) return false;
+    saveSubscriber(phone);
+    console.log(`✅ Known contact saved to subscribers: ${phone}`);
+    return true;
+}

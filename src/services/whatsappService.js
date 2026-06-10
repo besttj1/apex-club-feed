@@ -3,7 +3,7 @@ import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 import { getChromePath } from '../utils/chromePath.js';
 import fs from 'fs';
 import path from 'path';
-import { handleNewSubscriber, isAlreadySubscribed } from './contactService.js';
+import { handleNewSubscriber, isAlreadySubscribed, handleKnownContact } from './contactService.js';
 import { handlePrediction } from './predictService.js';
 import { readFileSync } from 'fs';
 
@@ -209,7 +209,8 @@ async function startMessageListener() {
                             title, 
                             phone: identifier, 
                             messageText: '', 
-                            isNewSubscriber: !alreadySaved
+                            isNewSubscriber: !alreadySaved,
+                            isKnownContact: true
                         });
 
                         await resetPage();
@@ -228,7 +229,7 @@ async function startMessageListener() {
         if (isProcessingMessage || isUploadingStatus || messageQueue.length === 0) return;
 
         isProcessingMessage = true;
-        const { title, phone, isNewSubscriber } = messageQueue.shift();
+        const { title, phone, isNewSubscriber, isKnownContact } = messageQueue.shift();
 
         try {
             // first try dom click
@@ -325,8 +326,13 @@ async function startMessageListener() {
                 await page.click('span[data-testid="wds-ic-send-filled"]');
                 console.log(`✅ Welcome message sent to: ${title}`);
 
-                // save subscriber after welcome message sent
-                await handleNewSubscriber(phone);
+                
+                // save subscriber — known contacts skip Google Contacts save
+                if (isKnownContact) {
+                    await handleKnownContact(phone);
+                } else {
+                    await handleNewSubscriber(phone);
+                }
 
                 // small natural delay before sending prediction reply
                 await new Promise(resolve => setTimeout(resolve, 3000));
