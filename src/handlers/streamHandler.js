@@ -98,7 +98,6 @@ function connectToStream() {
                 .trim();
                 // add to queue so each tweet is processed one at a time in order
                 queue.add(async () => {
-                    // mediaItems — retweeted and quoted first so thumbnails don't block video detection
                     const mediaItems = (
                         tweet.retweeted_status?.extended_entities?.media ||
                         tweet.retweeted_status?.extendedEntities?.media ||
@@ -114,19 +113,48 @@ function connectToStream() {
 
                     const hasVideo = mediaItems.some(m => m.type === 'video' || m.type === 'animated_gif');
 
+                    // check for linked tweet video via t.co URL in tweet text
+                    // only used for accounts known to post linked video cards
+                    const tcoMatch = textContent.match(/https:\/\/t\.co\/\S+/);
+                    const hasLinkedUrl = tcoMatch && tcoMatch[0];
+
+                    // accounts that use linked video cards instead of direct attachments
+                    const linkedVideoAccounts = config.linkedVideoAccounts || ['GoalsXtra'];
+                    const isLinkedVideoAccount = linkedVideoAccounts.some(
+                        acc => acc.toLowerCase() === authorHandle.toLowerCase()
+                    );
+
                     if (hasVideo) {
-                        // check all possible url locations — direct, quote tweet, or repost
-                        // videoTweetUrl — retweet first (your repost case), then main tweet, then quote
+                        // direct video attachment detected
                         const videoTweetUrl = tweet.retweeted_status?.url ||
-                        tweet.retweeted_status?.twitterUrl ||
-                        tweet.url ||
-                        tweet.twitterUrl ||
-                        tweet.quoted_status?.url ||
-                        tweet.quoted_status?.twitterUrl;
+                                            tweet.retweeted_status?.twitterUrl ||
+                                            tweet.url ||
+                                            tweet.twitterUrl ||
+                                            tweet.quoted_status?.url ||
+                                            tweet.quoted_status?.twitterUrl;
 
                         const videoPath = await downloadTweetVideo(videoTweetUrl, tweetId, authorHandle);
-                        if (videoPath) await sendToStatus(videoPath, cleanText);
+                        if (videoPath) {
+                            await sendToStatus(videoPath, cleanText);
+                        } else {
+                            console.log('⚠️ Video download failed, falling back to screenshot...');
+                            const screenshotPath = await captureTweetScreenshot(tweetId, authorHandle, tweet);
+                            if (screenshotPath) await sendToStatus(screenshotPath);
+                        }
+                    } else if (hasLinkedUrl && isLinkedVideoAccount) {
+                        // linked tweet card detected — only for accounts known to post video cards
+                        console.log(`🔗 Attempting linked tweet video download: ${hasLinkedUrl}`);
+                        const videoPath = await downloadTweetVideo(hasLinkedUrl, tweetId, authorHandle);
+                        if (videoPath) {
+                            await sendToStatus(videoPath, cleanText);
+                        } else {
+                            // fallback to screenshot if linked video download fails
+                            console.log('⚠️ Linked video download failed, falling back to screenshot...');
+                            const screenshotPath = await captureTweetScreenshot(tweetId, authorHandle, tweet);
+                            if (screenshotPath) await sendToStatus(screenshotPath);
+                        }
                     } else {
+                        // no video — take screenshot
                         const screenshotPath = await captureTweetScreenshot(tweetId, authorHandle, tweet);
                         if (screenshotPath) await sendToStatus(screenshotPath);
                     }

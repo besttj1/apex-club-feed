@@ -1,8 +1,11 @@
 {
     "targetAccounts": [
         "FabrizioRomano",
-        "GoalAlertHQ",
-        "David_Ornstein"
+        "David_Ornstein",
+        "GoalsXtra"
+    ],
+    "linkedVideoAccounts": [
+        "GoalsXtra"
     ],
     "keywords": [
         "real madrid",
