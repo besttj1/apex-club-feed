@@ -126,9 +126,19 @@ function connectToStream() {
 
                         const videoPath = await downloadTweetVideo(videoTweetUrl, tweetId, authorHandle);
                         if (videoPath) await sendToStatus(videoPath, cleanText);
-                    } else {
-                        const screenshotPath = await captureTweetScreenshot(tweetId, authorHandle, tweet);
-                        if (screenshotPath) await sendToStatus(screenshotPath);
+                    }  else {
+                        // skip screenshot for video-only accounts
+                        const videoOnlyAccounts = config.videoOnlyAccounts || [];
+                        const isVideoOnly = videoOnlyAccounts.some(
+                            acc => acc.toLowerCase() === authorHandle.toLowerCase()
+                        );
+
+                        if (isVideoOnly) {
+                            console.log(`⏭️ Skipping non-video tweet from video-only account: @${authorHandle}`);
+                        } else {
+                            const screenshotPath = await captureTweetScreenshot(tweetId, authorHandle, tweet);
+                            if (screenshotPath) await sendToStatus(screenshotPath);
+                        }
                     }
                 });
             }

@@ -1,7 +1,9 @@
 {
     "targetAccounts": [
         "FabrizioRomano",
-        "David_Ornstein",
+        "David_Ornstein"
+    ],
+    "videoOnlyAccounts": [
         "GoalsXtra"
     ],
     "keywords": [
