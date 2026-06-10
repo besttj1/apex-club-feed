@@ -1,0 +1,41 @@
+{
+    "active": true,
+    "match": "Mexico vs South Africa",
+    "team1": "Mexico",
+    "team1Short": "Mex",
+    "team2": "South Africa",
+    "team2Short": "Sou",
+    "keyword": "PREDICT",
+    "deadline": "2026-06-10T20:30:00",
+    "prize": "Airtime",
+    "replyMessages": {
+        "confirmed": [
+            "✅ Your prediction has been received and confirmed! 🏆 Good luck! 🍀",
+            "🎉 Entry confirmed! We've got your prediction locked in! 🏆 Best of luck! 🍀",
+            "✅ Prediction submitted successfully! 🔥 May the best predictor win! 🏆",
+            "🏆 You're in! Your prediction has been recorded! Good luck to you! 🍀🔥",
+            "✅ Got it! Your entry is confirmed and saved! 🎉 Fingers crossed! 🏆"
+        ],
+        "invalid": [
+            "❌ Invalid format! Send your prediction like this:\nPREDICT {team1Short} 2 vs 1 {team2Short}\n\nMake sure you follow the exact format! 📲",
+            "⚠️ Wrong format! Try again like this:\nPREDICT {team1Short} 2 vs 1 {team2Short}\n\nFollow the exact format to be counted! 📲",
+            "❌ We couldn't read your entry! Send it like this:\nPREDICT {team1Short} 2 vs 1 {team2Short}\n\nDouble check and try again! 📲",
+            "⚠️ Entry not accepted! Wrong format! Here's how:\nPREDICT {team1Short} 2 vs 1 {team2Short}\n\nTry again! 📲",
+            "❌ Oops! Send your prediction like this:\nPREDICT {team1Short} 2 vs 1 {team2Short}\n\nGive it another shot! 📲"
+        ],
+        "closed": [
+            "⏰ Sorry! The prediction contest for {match} is now closed! Stay tuned for the next Predict & Win! 🏆",
+            "🚫 Entries for {match} are closed! Watch out for our next Predict & Win! 🏆",
+            "⏰ Too late! The {match} contest has ended! Keep an eye out for the next one! 🔥🏆",
+            "🚫 Sorry! Predictions for {match} are no longer accepted! Next contest coming soon! 🏆",
+            "⏰ {match} contest closed! Better luck next time! Stay tuned for more! 🏆🍀"
+        ],
+        "duplicate": [
+            "⚠️ You already submitted a prediction for {match}! Only one entry per person! 🏆",
+            "🚫 Duplicate entry! You already submitted for {match}! 🏆",
+            "⚠️ One entry per person only for {match}! We already have yours! 🏆",
+            "🚫 You're already in for {match}! No need to send again! 🏆",
+            "⚠️ Already received your {match} entry! One submission per contest only! 🏆"
+        ]
+    }
+}

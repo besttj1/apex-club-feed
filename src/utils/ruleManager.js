@@ -1,10 +1,35 @@
 import 'dotenv/config';
+import { readFileSync } from 'fs';
 
 const API_KEY = process.env.TWITTERAPI_IO_KEY;
 const TARGET_RULE_ID = process.env.TARGET_RULE_ID;
 
+// build rule value dynamically from config.json target accounts
+// so whenever you update config.json, the rule reflects it automatically
+function buildRuleValue() {
+    try {
+        const config = JSON.parse(readFileSync('./config.json', 'utf-8'));
+        const ruleValue = config.targetAccounts
+            .map(account => `from:${account}`)
+            .join(' OR ');
+        console.log(`📋 Rule value built: ${ruleValue}`);
+        return ruleValue;
+    } catch (error) {
+        console.error('❌ Failed to read config.json:', error.message);
+        return null;
+    }
+}
+
 export async function activateRule() {
     console.log(`⏳ Activating streaming rule (${TARGET_RULE_ID})...`);
+
+    // build rule value from config.json before activating
+    const ruleValue = buildRuleValue();
+    if (!ruleValue) {
+        console.error('❌ Cannot activate — failed to build rule value from config.json');
+        return false;
+    }
+
     try {
         const response = await fetch("https://api.twitterapi.io/oapi/tweet_filter/update_rule", {
             method: "POST",
@@ -15,7 +40,7 @@ export async function activateRule() {
             body: JSON.stringify({
                 rule_id: TARGET_RULE_ID,
                 tag: "football_feed",
-                value: "from:FabrizioRomano OR from:theMadridZone",
+                value: ruleValue,
                 interval_seconds: 60,
                 is_effect: 1 // 1 forces the rule live
             })
@@ -43,6 +68,14 @@ export async function activateRule() {
 
 export async function deactivateRule() {
     console.log(`⏳ Deactivating streaming rule (${TARGET_RULE_ID})...`);
+
+    // build rule value from config.json for deactivation
+    const ruleValue = buildRuleValue();
+    if (!ruleValue) {
+        console.error('❌ Cannot deactivate — failed to build rule value from config.json');
+        return false;
+    }
+
     try {
         const response = await fetch("https://api.twitterapi.io/oapi/tweet_filter/update_rule", {
             method: "POST",
@@ -53,7 +86,7 @@ export async function deactivateRule() {
             body: JSON.stringify({
                 rule_id: TARGET_RULE_ID,
                 tag: "football_feed",
-                value: "from:FabrizioRomano OR from:theMadridZone",
+                value: ruleValue,
                 interval_seconds: 60,
                 status: "disabled" // freezes the rule server-side to stop credit consumption
             })

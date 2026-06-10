@@ -88,10 +88,16 @@ function connectToStream() {
                 .trim();
                 // add to queue so each tweet is processed one at a time in order
                 queue.add(async () => {
+                    // mediaItems — retweeted and quoted first so thumbnails don't block video detection
                     const mediaItems = (
+                        tweet.retweeted_status?.extended_entities?.media ||
+                        tweet.retweeted_status?.extendedEntities?.media ||
+                        tweet.retweeted_status?.media ||
+                        tweet.quoted_status?.extended_entities?.media ||
+                        tweet.quoted_status?.extendedEntities?.media ||
+                        tweet.quoted_status?.media ||
                         tweet.extended_entities?.media ||
                         tweet.extendedEntities?.media ||
-                        tweet.entities?.media ||
                         tweet.media ||
                         []
                     );
@@ -99,7 +105,16 @@ function connectToStream() {
                     const hasVideo = mediaItems.some(m => m.type === 'video' || m.type === 'animated_gif');
 
                     if (hasVideo) {
-                        const videoPath = await downloadTweetVideo(tweet.url || tweet.twitterUrl, tweetId, authorHandle);
+                        // check all possible url locations — direct, quote tweet, or repost
+                        // videoTweetUrl — retweet first (your repost case), then main tweet, then quote
+                        const videoTweetUrl = tweet.retweeted_status?.url ||
+                        tweet.retweeted_status?.twitterUrl ||
+                        tweet.url ||
+                        tweet.twitterUrl ||
+                        tweet.quoted_status?.url ||
+                        tweet.quoted_status?.twitterUrl;
+
+                        const videoPath = await downloadTweetVideo(videoTweetUrl, tweetId, authorHandle);
                         if (videoPath) await sendToStatus(videoPath, cleanText);
                     } else {
                         const screenshotPath = await captureTweetScreenshot(tweetId, authorHandle, tweet);

@@ -212,7 +212,7 @@ async function captureTweetScreenshot(tweetId, accountName, tweetData) {
                             </div>
                             <div class="name-block">
                                 <span class="display-name">Apex Club Feed</span>
-                                <span class="handle">+2349042179391</span>
+                                <span class="handle">+2348107384307</span>
                             </div>
                             <div class="brand-logos">
                                 ${whatsappSvg}
