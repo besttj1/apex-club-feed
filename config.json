@@ -1,21 +1,27 @@
 {
     "targetAccounts": [
         "FabrizioRomano",
-        "David_Ornstein"
+        "David_Ornstein",
+        "GoalsXtra"
     ],
     "videoOnlyAccounts": [
         "GoalsXtra"
     ],
     "keywords": [
-        "real madrid",
+        "madrid",
+        "barca",
         "chelsea",
         "barcelona",
         "liverpool",
-        "united",
+        "manchester united",
+        "man united",
+        "man utd",
+        "man city",
+        "mcfc",
         "arsenal",
         "here we go",
         "bayern",
-        "city",
+        "manchester city",
         "psg",
         "goal",
         "score",
@@ -23,13 +29,10 @@
         "tottenham",
         "borussia dortmund",
         "juventus",
-        "ac milan",
-        "inter milan",
+        "milan",
         "napoli",
         "roma",
         "lazio",
-        "atalanta",
-        "fiorentina",
         "france",
         "spain",
         "argentina",
@@ -54,6 +57,12 @@
         "turkiye",
         "ecuador",
         "austria",
-        "south korea"
+        "south korea",
+        "world cup",
+        "fifa",
+        "uefa",
+        "premier league",
+        "la liga",
+        "worldcup"
     ]
 }

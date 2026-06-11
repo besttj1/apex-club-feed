@@ -18,12 +18,24 @@ async function downloadTweetVideo(tweetUrl, tweetId, accountName) {
         const stats = await fs.stat(rawFilename);
         const fileSizeMB = stats.size / (1024 * 1024);
 
-        if (fileSizeMB > 10) {
-            // compress if over 10MB so whatsapp web doesn't reject it
+        if (fileSizeMB > 8) {
+            // compress if over 8MB — gives buffer to stay under whatsapp's 10MB limit
             console.log(`🗜️ Video is ${fileSizeMB.toFixed(1)}MB — compressing...`);
-            await execAsync(`ffmpeg -i "${rawFilename}" -vcodec libx264 -crf 28 -preset fast -acodec aac -b:a 128k "${finalFilename}" -y`);
+            await execAsync(`ffmpeg -i "${rawFilename}" -vcodec libx264 -crf 32 -preset fast -acodec aac -b:a 96k -vf scale=720:-2 "${finalFilename}" -y`);
             await fs.unlink(rawFilename);
             console.log(`✅ Video compressed: ${finalFilename}`);
+
+            // check compressed file size — if still over 10MB compress again more aggressively
+            const compressedStats = await fs.stat(finalFilename);
+            const compressedSizeMB = compressedStats.size / (1024 * 1024);
+            if (compressedSizeMB > 10) {
+                console.log(`🗜️ Still ${compressedSizeMB.toFixed(1)}MB — compressing again more aggressively...`);
+                const recompressedFilename = `recompressed_video_${accountName}_${tweetId}.mp4`;
+                await execAsync(`ffmpeg -i "${finalFilename}" -vcodec libx264 -crf 38 -preset fast -acodec aac -b:a 64k -vf scale=480:-2 "${recompressedFilename}" -y`);
+                await fs.unlink(finalFilename);
+                await fs.rename(recompressedFilename, finalFilename);
+                console.log(`✅ Video recompressed: ${finalFilename}`);
+            }
         } else {
             // small enough, just rename it
             await fs.rename(rawFilename, finalFilename);
