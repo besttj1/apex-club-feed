@@ -1,10 +1,38 @@
 import WebSocket from 'ws';
+import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { CONFIG_PATH, API_KEY } from '../config/constants.js';
 import { readJsonFile } from '../utils/fileHelper.js';
 import { captureTweetScreenshot } from '../services/screenshotService.js';
 import { downloadTweetVideo } from '../services/videoService.js';
 import { sendToStatus } from '../services/whatsappService.js';
 import PQueue from 'p-queue';
+
+// path to persist processed tweet IDs across reconnections
+const PROCESSED_TWEETS_PATH = './processed-tweets.json';
+
+// load processed tweet IDs from file so reconnections don't reprocess old tweets
+function loadProcessedTweets() {
+    try {
+        const data = JSON.parse(readFileSync(PROCESSED_TWEETS_PATH, 'utf-8'));
+        return new Set(data.ids);
+    } catch {
+        return new Set();
+    }
+}
+
+// save processed tweet ID to file — keeps only last 100 to prevent file growing too large
+function saveProcessedTweet(id) {
+    try {
+        const data = existsSync(PROCESSED_TWEETS_PATH)
+            ? JSON.parse(readFileSync(PROCESSED_TWEETS_PATH, 'utf-8'))
+            : { ids: [] };
+        data.ids.push(id);
+        if (data.ids.length > 100) data.ids = data.ids.slice(-100);
+        writeFileSync(PROCESSED_TWEETS_PATH, JSON.stringify(data));
+    } catch (err) {
+        console.error('⚠️ Could not save processed tweet:', err.message);
+    }
+}
 
 function connectToStream() {
     console.log('📡 Handshaking with TwitterAPI.io WebSocket gateway...');
@@ -15,8 +43,8 @@ function connectToStream() {
     // process one tweet at a time in order
     const queue = new PQueue({ concurrency: 1 });
 
-    // track processed tweet ids to avoid uploading the same tweet twice
-    const processedTweets = new Set();
+    // load processed tweet ids from file — survives reconnections and restarts
+    const processedTweets = loadProcessedTweets();
 
     // open a persistent websocket connection, api key goes in the header
     const ws = new WebSocket('wss://ws.twitterapi.io/twitter/tweet/websocket', {
@@ -57,7 +85,7 @@ function connectToStream() {
 
                 if (!authorHandle || !tweetId) continue;
 
-                // skip if we already processed this tweet
+                // skip if we already processed this tweet — checks both memory and file
                 if (processedTweets.has(tweetId)) {
                     console.log(`⏭️ Skipping duplicate tweet: ${tweetId}`);
                     continue;
@@ -86,16 +114,18 @@ function connectToStream() {
                     continue;
                 }
 
-                // mark tweet as processed before adding to queue to prevent race conditions
+                // mark tweet as processed in memory and persist to file
+                // persisting prevents reprocessing after reconnection or restart
                 processedTweets.add(tweetId);
+                saveProcessedTweet(tweetId);
 
                 console.log(`\n🚨 [STREAM MATCH] Live post from @${authorHandle}!`);
                 console.log(`💬 Content: "${textContent.replace(/\n/g, ' ')}"`);
 
-
                 const cleanText = (textContent || '')
                 .replace(/https:\/\/t\.co\/\S+/g, '')
                 .trim();
+
                 // add to queue so each tweet is processed one at a time in order
                 queue.add(async () => {
                     // mediaItems — retweeted and quoted first so thumbnails don't block video detection
@@ -126,7 +156,7 @@ function connectToStream() {
 
                         const videoPath = await downloadTweetVideo(videoTweetUrl, tweetId, authorHandle);
                         if (videoPath) await sendToStatus(videoPath, cleanText);
-                    }  else {
+                    } else {
                         // skip screenshot for video-only accounts
                         const videoOnlyAccounts = config.videoOnlyAccounts || [];
                         const isVideoOnly = videoOnlyAccounts.some(
