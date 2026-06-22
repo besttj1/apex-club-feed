@@ -147,7 +147,7 @@ async function startMessageListener() {
                 if (processedChats.has(title)) continue;
 
                 // lock chat immediately to prevent duplicate queuing
-                // will be unlocked later if prediction format was invalid
+                // will be unlocked later if prediction format was invalid or no reply needed
                 processedChats.add(title);
 
                 const isPhoneNumber = /^\+?[\d\s]{10,20}$/.test(title);
@@ -159,9 +159,9 @@ async function startMessageListener() {
                     const phone = title.replace(/[\s+]/g, '');
                     console.log(`📱 New message from unsaved number: ${phone}`);
 
-                // queue with flag so processing knows if they're new or existing
-                messageQueue.push({ title, phone, messageText: '', isNewSubscriber: !isAlreadySubscribed(phone) });
-                console.log(`📥 Message queued: ${phone}`);
+                    // queue with flag so processing knows if they're new or existing
+                    messageQueue.push({ title, phone, messageText: '', isNewSubscriber: !isAlreadySubscribed(phone) });
+                    console.log(`📥 Message queued: ${phone}`);
 
                 } else if (isACFSubscriber) {
                     // extract phone number from saved contact name "ACF SUB 2348012345678"
@@ -175,7 +175,7 @@ async function startMessageListener() {
                 } else {
                     // saved contact — use title as identifier since phone may not be extractable
                     // works for both regular and business WhatsApp saved contacts
-                    
+
                     // try to get phone number by clicking contact info panel
                     const chatElement = await page.$(`span[title="${title}"]`);
                     if (chatElement) {
@@ -183,8 +183,12 @@ async function startMessageListener() {
                         await new Promise(resolve => setTimeout(resolve, 1500));
 
                         // click contact header to open info panel
-                        await page.click('div[data-testid="conversation-info-header"]');
-                        await new Promise(resolve => setTimeout(resolve, 1500));
+                        try {
+                            await page.click('div[data-testid="conversation-info-header"]');
+                            await new Promise(resolve => setTimeout(resolve, 1500));
+                        } catch {
+                            console.log(`⚠️ Could not open contact info for: ${title}`);
+                        }
 
                         // try to find phone number in contact info panel
                         const phone = await page.evaluate(() => {
@@ -202,6 +206,13 @@ async function startMessageListener() {
                         const identifier = phone || title;
                         console.log(`📱 Saved contact: ${title} — identifier: ${identifier}`);
 
+                        // close contact info panel before queuing
+                        // so message reading works correctly when chat is reopened in processing queue
+                        await page.keyboard.press('Escape');
+                        await new Promise(resolve => setTimeout(resolve, 500));
+                        await page.keyboard.press('Escape');
+                        await new Promise(resolve => setTimeout(resolve, 500));
+
                         // check if already subscribed — if not, send welcome message
                         const alreadySaved = isAlreadySubscribed(identifier);
 
@@ -213,7 +224,6 @@ async function startMessageListener() {
                             isKnownContact: true
                         });
 
-                        await resetPage();
                     } else {
                         console.log(`⏭️ Could not find chat: ${title}`);
                     }
@@ -264,7 +274,6 @@ async function startMessageListener() {
                     return lastMessage?.querySelector('span[data-testid="selectable-text"]')?.textContent?.trim() || '';
                 });
 
-
                 console.log(`📨 Message received: ${messageText}`);
 
                 // check if message is a prediction entry and extract result type and message
@@ -277,9 +286,11 @@ async function startMessageListener() {
                 return;
             }
 
-            // if existing subscriber sent a normal message — no reply needed, just reset
+            // if existing subscriber sent a normal message — no reply needed
+            // unlock chat so they can send future messages and get processed again
             if (!isNewSubscriber && !predictionReply) {
                 console.log(`⏭️ No reply needed for: ${phone}`);
+                processedChats.delete(title);
                 await resetPage();
                 return;
             }
@@ -326,7 +337,6 @@ async function startMessageListener() {
                 await page.click('span[data-testid="wds-ic-send-filled"]');
                 console.log(`✅ Welcome message sent to: ${title}`);
 
-                
                 // save subscriber — known contacts skip Google Contacts save
                 if (isKnownContact) {
                     await handleKnownContact(phone);
