@@ -9,8 +9,23 @@ function getAuthClient() {
     const { client_secret, client_id } = credentials.installed;
     const token = JSON.parse(readFileSync('./token.json'));
 
-    const oAuth2Client = new google.auth.OAuth2(client_id, client_secret, 'urn:ietf:wg:oauth:2.0:oob');
+    const oAuth2Client = new google.auth.OAuth2(client_id, client_secret, 'http://localhost:3000');
     oAuth2Client.setCredentials(token);
+
+    // auto save refreshed token to file so it never expires
+    // without this, Google refreshes the token but it never gets saved
+    // causing invalid_grant errors after the token goes stale
+    oAuth2Client.on('tokens', (tokens) => {
+        try {
+            const current = JSON.parse(readFileSync('./token.json'));
+            const updated = { ...current, ...tokens };
+            writeFileSync('./token.json', JSON.stringify(updated));
+            console.log('🔄 token.json refreshed and saved automatically');
+        } catch (err) {
+            console.error('⚠️ Failed to save refreshed token:', err.message);
+        }
+    });
+
     return oAuth2Client;
 }
 
@@ -71,7 +86,6 @@ export async function handleNewSubscriber(phone) {
     await saveToGoogleContacts(phone);
     return true;
 }
-
 
 // save to subscribers.json only — without Google Contacts
 // used for already saved contacts who are new to ACF
