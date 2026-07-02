@@ -34,17 +34,19 @@ function saveProcessedTweet(id) {
     }
 }
 
+// ✅ moved to module scope — a fresh WebSocket reconnect used to create a brand
+// new PQueue every time, which meant an old queue's in-flight sendToStatus call
+// could still be running while a new queue's task fired concurrently. Keeping
+// one queue instance alive across reconnects guarantees strict ordering no
+// matter how many times the socket drops and comes back.
+const queue = new PQueue({ concurrency: 1 });
+const processedTweets = loadProcessedTweets();
+
 function connectToStream() {
     console.log('📡 Handshaking with TwitterAPI.io WebSocket gateway...');
 
     // prevent multiple simultaneous reconnection attempts
     let isReconnecting = false;
-
-    // process one tweet at a time in order
-    const queue = new PQueue({ concurrency: 1 });
-
-    // load processed tweet ids from file — survives reconnections and restarts
-    const processedTweets = loadProcessedTweets();
 
     // open a persistent websocket connection, api key goes in the header
     const ws = new WebSocket('wss://ws.twitterapi.io/twitter/tweet/websocket', {
@@ -106,7 +108,7 @@ function connectToStream() {
 
                 // skip if GoalAlertHQ is reposting content from accounts we already monitor
                 // prevents duplicate news when GoalAlertHQ reposts FabrizioRomano etc.
-                const isRedundantRepost = targets.some(acc => 
+                const isRedundantRepost = targets.some(acc =>
                     textContent.toLowerCase().includes(`—@${acc.toLowerCase()}`)
                 );
                 if (isRedundantRepost) {

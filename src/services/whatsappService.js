@@ -19,6 +19,57 @@ let isProcessingMessage = false;
 // queue for incoming messages while busy
 const messageQueue = [];
 
+// timestamp/type of the last completed page action, used for cross-type cooldowns
+let lastActionAt = 0;
+let lastActionType = null; // 'message' | 'status'
+
+// tracks whether the session was OK last time we checked, so we only log on change
+let lastSessionOk = true;
+
+function randomBetween(min, max) {
+    return Math.floor(Math.random() * (max - min)) + min;
+}
+
+function humanTypeDelay() {
+    // 70–130ms per character, re-rolled per call, so typing isn't instant/robotic
+    return randomBetween(70, 130);
+}
+
+async function waitForCooldown(currentType, minMs, maxMs) {
+    // only cool down when switching between message <-> status activity;
+    // back-to-back actions of the same type skip this since they already
+    // have their own internal delays
+    if (lastActionType !== null && lastActionType !== currentType) {
+        const gap = randomBetween(minMs, maxMs);
+        const elapsed = Date.now() - lastActionAt;
+        if (elapsed < gap) {
+            const wait = gap - elapsed;
+            console.log(`🧊 Cooling down ${(wait / 1000).toFixed(1)}s (switching ${lastActionType} → ${currentType})...`);
+            await new Promise(resolve => setTimeout(resolve, wait));
+        }
+    }
+}
+
+function markActionComplete(type) {
+    lastActionAt = Date.now();
+    lastActionType = type;
+}
+
+async function checkSessionState() {
+    try {
+        return await page.evaluate(() => {
+            const bodyText = document.body.innerText || '';
+            const isRestricted = /temporarily restricted|can't use whatsapp/i.test(bodyText);
+            const isLoggedIn = !!document.querySelector('div[data-testid="chat-list"]')
+                || !!document.querySelector('div[id="pane-side"]');
+            const isQrScreen = !!document.querySelector('canvas[aria-label], div[data-testid="qrcode"]');
+            return { isRestricted, isLoggedIn, isQrScreen };
+        });
+    } catch (err) {
+        return { isRestricted: false, isLoggedIn: false, isQrScreen: false, error: err.message };
+    }
+}
+
 async function startWhatsApp() {
     console.log('🚀 Launching WhatsApp Web...');
 
@@ -107,6 +158,25 @@ async function startMessageListener() {
         if (isUploadingStatus || isProcessingMessage) return;
 
         try {
+            // check session health first — skip this cycle entirely if logged out/restricted
+            const sessionState = await checkSessionState();
+
+            if (!sessionState.isLoggedIn && lastSessionOk) {
+                const reason = sessionState.isRestricted ? 'RESTRICTED'
+                    : sessionState.isQrScreen ? 'LOGGED_OUT'
+                    : 'UNKNOWN';
+                console.error(`🚨 [${new Date().toISOString()}] Session dropped — reason: ${reason}`);
+                await page.screenshot({ path: `session-drop-${Date.now()}.png` });
+                lastSessionOk = false;
+            }
+
+            if (sessionState.isLoggedIn && !lastSessionOk) {
+                console.log(`✅ [${new Date().toISOString()}] Session restored`);
+                lastSessionOk = true;
+            }
+
+            if (!sessionState.isLoggedIn) return;
+
             // check if contest changed or reactivated and clear processed chats
             const currentConfig = JSON.parse(readFileSync('./predict-config.json', 'utf-8'));
             const contestChanged = currentConfig.match !== lastKnownMatch;
@@ -216,10 +286,10 @@ async function startMessageListener() {
                         // check if already subscribed — if not, send welcome message
                         const alreadySaved = isAlreadySubscribed(identifier);
 
-                        messageQueue.push({ 
-                            title, 
-                            phone: identifier, 
-                            messageText: '', 
+                        messageQueue.push({
+                            title,
+                            phone: identifier,
+                            messageText: '',
                             isNewSubscriber: !alreadySaved,
                             isKnownContact: true
                         });
@@ -238,10 +308,18 @@ async function startMessageListener() {
     setInterval(async () => {
         if (isProcessingMessage || isUploadingStatus || messageQueue.length === 0) return;
 
+        // don't consume a queued item if the session isn't actually usable right now —
+        // it stays in the queue and gets retried once the session is back
+        const sessionState = await checkSessionState();
+        if (!sessionState.isLoggedIn) return;
+
         isProcessingMessage = true;
         const { title, phone, isNewSubscriber, isKnownContact } = messageQueue.shift();
 
         try {
+            // space out from a status post if one just finished
+            await waitForCooldown('message', 10000, 30000);
+
             // first try dom click
             await page.evaluate((chatTitle) => {
                 const titleEl = document.querySelector(`span[title="${chatTitle}"]`);
@@ -262,7 +340,7 @@ async function startMessageListener() {
                 console.log(`🖱️ Clicked chat: ${title}`);
 
                 // random delay before reading — feels less robotic
-                const readDelay = Math.floor(Math.random() * 7000) + 3000;
+                const readDelay = randomBetween(10000, 30000);
                 await new Promise(resolve => setTimeout(resolve, readDelay));
 
                 // read actual message text from inside the open chat
@@ -292,12 +370,13 @@ async function startMessageListener() {
                 console.log(`⏭️ No reply needed for: ${phone}`);
                 processedChats.delete(title);
                 await resetPage();
+                markActionComplete('message');
                 return;
             }
 
-            // random delay 2-7 seconds to avoid spam detection
-            const delay = Math.floor(Math.random() * 5000) + 2000;
-            console.log(`⏳ Waiting ${delay / 1000}s before replying...`);
+            // random delay before replying to avoid spam detection
+            const delay = randomBetween(7000, 25000);
+            console.log(`⏳ Waiting ${(delay / 1000).toFixed(1)}s before replying...`);
             await new Promise(resolve => setTimeout(resolve, delay));
 
             const messageBox = await page.waitForSelector('div[data-testid="conversation-compose-box-input"]', { timeout: 10000 });
@@ -322,8 +401,9 @@ async function startMessageListener() {
                 // type message handling newlines as Shift+Enter instead of Enter
                 // so they appear as line breaks inside one bubble not separate messages
                 const welcomelines = randomMessage.split('\n');
+                const welcomeTypeDelay = humanTypeDelay();
                 for (let i = 0; i < welcomelines.length; i++) {
-                    await page.keyboard.type(welcomelines[i]);
+                    await page.keyboard.type(welcomelines[i], { delay: welcomeTypeDelay });
                     if (i < welcomelines.length - 1) {
                         await page.keyboard.down('Shift');
                         await page.keyboard.press('Enter');
@@ -354,8 +434,9 @@ async function startMessageListener() {
                 // type message handling newlines as Shift+Enter instead of Enter
                 // so they appear as line breaks inside one bubble not separate messages
                 const replylines = predictionReply.split('\n');
+                const replyTypeDelay = humanTypeDelay();
                 for (let i = 0; i < replylines.length; i++) {
-                    await page.keyboard.type(replylines[i]);
+                    await page.keyboard.type(replylines[i], { delay: replyTypeDelay });
                     if (i < replylines.length - 1) {
                         await page.keyboard.down('Shift');
                         await page.keyboard.press('Enter');
@@ -379,12 +460,14 @@ async function startMessageListener() {
             }
 
             await resetPage();
+            markActionComplete('message');
 
         } catch (err) {
             console.error('⚠️ Message processing failed:', err.message);
             await page.screenshot({ path: 'message-error.png' });
             console.log('📸 Saved message-error.png');
             await resetPage();
+            markActionComplete('message');
         } finally {
             isProcessingMessage = false;
         }
@@ -392,9 +475,12 @@ async function startMessageListener() {
 }
 
 async function sendToStatus(filePath, caption = '') {
-    // wait if a message is currently being processed
-    while (isProcessingMessage) {
-        console.log('⏳ Waiting for message processing to finish...');
+    // wait if a message is being processed OR another status upload is already
+    // running — guards against sendToStatus itself being called concurrently
+    // (e.g. by two overlapping callers), not just against overlapping with
+    // message handling
+    while (isProcessingMessage || isUploadingStatus) {
+        console.log('⏳ Waiting for the page to be free before starting status upload...');
         await new Promise(resolve => setTimeout(resolve, 2000));
     }
 
@@ -402,6 +488,33 @@ async function sendToStatus(filePath, caption = '') {
 
     try {
         if (!page) throw new Error('WhatsApp Web instance not active');
+
+        // bail cleanly if the session isn't actually usable right now
+        const sessionState = await checkSessionState();
+        if (!sessionState.isLoggedIn) {
+            const reason = sessionState.isRestricted ? 'RESTRICTED'
+                : sessionState.isQrScreen ? 'LOGGED_OUT'
+                : 'UNKNOWN';
+            console.error(`🚫 Skipping status upload — session not usable (${reason})`);
+            await page.screenshot({ path: `session-lost-${Date.now()}.png` });
+            return;
+        }
+
+        // space out from a message reply if one just finished
+        await waitForCooldown('status', 10000, 30000);
+
+        // the cooldown can sleep up to 30s — re-check in case the session
+        // dropped during that window, so a failure here still gets tagged
+        // with a specific reason instead of falling through to the generic catch
+        const postCooldownState = await checkSessionState();
+        if (!postCooldownState.isLoggedIn) {
+            const reason2 = postCooldownState.isRestricted ? 'RESTRICTED'
+                : postCooldownState.isQrScreen ? 'LOGGED_OUT'
+                : 'UNKNOWN';
+            console.error(`🚫 Skipping status upload — session dropped during cooldown (${reason2})`);
+            await page.screenshot({ path: `session-lost-${Date.now()}.png` });
+            return;
+        }
 
         console.log(`📤 Executing status update for: ${filePath}`);
         const isVideo = filePath.endsWith('.mp4');
@@ -467,38 +580,57 @@ async function sendToStatus(filePath, caption = '') {
         await inputUploadHandle.uploadFile(absolutePath);
         await new Promise(resolve => setTimeout(resolve, 3000));
 
-        // add caption if provided
-        if (caption) {
-            try {
-                const footerInput = await page.waitForSelector('div[data-testid="media-caption-input-container"]', { timeout: 10000 });
-                await footerInput.click();
-                await page.keyboard.type(caption);
-                await new Promise(resolve => setTimeout(resolve, 10000));
-            } catch (err) {
-                console.log('⚠️ Caption box not found — already auto-sent');
-            }
-        }
-
-        // watch for first xhr request before clicking send
+        // register the xhr listener BEFORE caption typing, so an early
+        // Enter-triggered send (see below) can't slip past it unnoticed
         const uploadAccepted = page.waitForResponse(
             response => response.request().resourceType() === 'xhr',
             { timeout: 5 * 60 * 1000 }
         );
 
-        // click send button — may already be auto-sent after caption
+        // add caption if provided
+        if (caption) {
+            try {
+                const footerInput = await page.waitForSelector('div[data-testid="media-caption-input-container"]', { timeout: 10000 });
+                await footerInput.click();
+
+                // type line-by-line with Shift+Enter for breaks — never a raw Enter,
+                // which is what auto-sends the status mid-caption if the text
+                // contains a newline character
+                const captionLines = caption.split('\n');
+                const captionTypeDelay = humanTypeDelay();
+                for (let i = 0; i < captionLines.length; i++) {
+                    await page.keyboard.type(captionLines[i], { delay: captionTypeDelay });
+                    if (i < captionLines.length - 1) {
+                        await page.keyboard.down('Shift');
+                        await page.keyboard.press('Enter');
+                        await page.keyboard.up('Shift');
+                    }
+                }
+                await new Promise(resolve => setTimeout(resolve, 1500));
+            } catch (err) {
+                console.log('⚠️ Caption box not found — already auto-sent');
+            }
+        }
+
+        // click send button — may already be auto-sent after caption.
+        // waitForSelector polls rather than blind-sleeping a fixed amount,
+        // so this naturally covers slower-rendering cases (large videos,
+        // slow connections) instead of guessing a fixed number
         try {
-            await page.waitForSelector('span[data-testid="wds-ic-send-filled"]', { visible: true, timeout: 5000 });
+            await page.waitForSelector('span[data-testid="wds-ic-send-filled"]', { visible: true, timeout: 10000 });
             await page.click('span[data-testid="wds-ic-send-filled"]');
         } catch (err) {
             console.log('⚠️ Send button not found — likely auto-sent already');
         }
 
-        // wait for first xhr which means whatsapp accepted the upload
+        // wait for the xhr which means whatsapp accepted the upload —
+        // guaranteed to catch it now regardless of when the send actually fired
         await uploadAccepted;
         console.log(`✅ Status upload processed: ${filePath}`);
 
         // reset page after successful upload
         await resetPage();
+        markActionComplete('status');
 
         // delete file in background after 5 minutes
         setTimeout(async () => {
@@ -512,9 +644,15 @@ async function sendToStatus(filePath, caption = '') {
 
     } catch (error) {
         console.error(`❌ Status update sequence failed:`, error.message);
-        await page.screenshot({ path: 'debug.png' });
-        console.log('📸 Saved debug.png to see current page state');
-        await resetPage();
+        // guard against `page` being undefined — e.g. if this was reached via
+        // the `if (!page) throw` check above, page.screenshot() would itself
+        // throw a second, unhandled error otherwise
+        if (page) {
+            await page.screenshot({ path: 'debug.png' });
+            console.log('📸 Saved debug.png to see current page state');
+            await resetPage();
+            markActionComplete('status');
+        }
         console.error(`❌ Upload failed for: ${filePath}`);
     } finally {
         // always clear the flag when done
