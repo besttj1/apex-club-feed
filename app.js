@@ -1,4 +1,4 @@
-import { startWhatsApp } from './src/services/whatsappService.js';
+import { startWhatsApp, closeWhatsApp } from './src/services/whatsappService.js';
 import { connectToStream } from './src/handlers/streamHandler.js';
 import { deactivateRule, activateRule } from './src/utils/ruleManager.js';
 import cron from 'node-cron';
@@ -17,7 +17,7 @@ setInterval(() => {
 
 // skip night schedule entirely during tournament mode — run 24/7
 if (process.env.TOURNAMENT_MODE !== 'true') {
-    
+
     // deactivate at 1am WAT
     cron.schedule('0 0 * * *', async () => {
         console.log('🌙 Night mode — deactivating stream to save credits...');
@@ -32,10 +32,17 @@ if (process.env.TOURNAMENT_MODE !== 'true') {
 
 }
 
-// handle ctrl+c gracefully — deactivate rule before exiting
-process.on('SIGINT', async () => {
-    console.log('\n⏳ Shutting down gracefully...');
+// shared shutdown logic for both signal types
+async function gracefulShutdown(signal) {
+    console.log(`\n⏳ Received ${signal} — shutting down gracefully...`);
     await deactivateRule();
+    await closeWhatsApp();
     console.log('👋 Engine stopped cleanly');
     process.exit(0);
-});
+}
+
+// handle ctrl+c (manual stop)
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+// handle pm2 stop/restart/reload
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
