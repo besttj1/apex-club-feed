@@ -167,7 +167,14 @@ async function startWhatsApp() {
             page.waitForSelector('div[id="pane-side"]', { timeout: 10000 }),
         ]);
         console.log('✅ WhatsApp session restored from cache!');
-        await startMessageListener();
+
+        // only start the auto-reply/save-contact listener on machines
+        // where it's explicitly enabled — server stays status-upload only
+        if (process.env.ENABLE_AUTO_REPLY === 'true') {
+            await startMessageListener();
+        } else {
+            console.log('⏭️ Auto-reply listener disabled on this machine.');
+        }
     } catch (err) {
         console.log('📱 Active session not found — capturing QR Code...');
         await new Promise(resolve => setTimeout(resolve, 5000));
@@ -182,7 +189,12 @@ async function startWhatsApp() {
         ]);
 
         console.log('✅ WhatsApp Web authentication completed!');
-        await startMessageListener();
+
+        if (process.env.ENABLE_AUTO_REPLY === 'true') {
+            await startMessageListener();
+        } else {
+            console.log('⏭️ Auto-reply listener disabled on this machine.');
+        }
     }
 }
 
@@ -546,6 +558,13 @@ async function startMessageListener() {
 }
 
 async function sendToStatus(filePath, caption = '') {
+    // only run status uploads on machines where it's explicitly enabled —
+    // PC stays reply/save-only, server stays status-upload only
+    if (process.env.ENABLE_STATUS_UPLOAD !== 'true') {
+        console.log(`⏭️ Status upload disabled on this machine — skipping: ${filePath}`);
+        return;
+    }
+
     // wait if a message is being processed OR another status upload is already
     // running — guards against sendToStatus itself being called concurrently
     // (e.g. by two overlapping callers), not just against overlapping with
