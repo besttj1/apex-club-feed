@@ -26,6 +26,16 @@ let lastActionType = null; // 'message' | 'status'
 // tracks whether the session was OK last time we checked, so we only log on change
 let lastSessionOk = true;
 
+// tracks active listener intervals so they can be cleared on browser death/restart
+let messageListenerIntervals = [];
+
+// prevents overlapping relaunch attempts if 'disconnected' fires more than once
+let isRestarting = false;
+
+// set true during an intentional shutdown so the disconnect handler
+// doesn't try to relaunch when we WANTED the browser to close
+let isShuttingDown = false;
+
 function randomBetween(min, max) {
     return Math.floor(Math.random() * (max - min)) + min;
 }
@@ -70,8 +80,51 @@ async function checkSessionState() {
     }
 }
 
+// fires the instant the browser process dies for ANY reason (crash, D-Bus abort,
+// killed, closed) — clears stale intervals and relaunches from scratch so the
+// engine self-heals instead of looping "session closed" errors indefinitely
+async function handleBrowserDisconnect() {
+    if (isShuttingDown) {
+        console.log('🛑 Browser closed as part of intentional shutdown — no relaunch needed.');
+        return;
+    }
+
+    if (isRestarting) return; // already handling a relaunch, ignore duplicate event
+    isRestarting = true;
+
+    console.error(`💥 [${new Date().toISOString()}] Browser disconnected unexpectedly — relaunching...`);
+
+    // stop the old listener intervals so they don't keep hitting a dead page
+    messageListenerIntervals.forEach(clearInterval);
+    messageListenerIntervals = [];
+
+    // brief pause before relaunch so any OS-level cleanup (orphaned processes,
+    // lock files) has a moment to settle
+    await new Promise(resolve => setTimeout(resolve, 3000));
+
+    try {
+        await startWhatsApp();
+        console.log('✅ Relaunch successful — engine back online.');
+    } catch (err) {
+        console.error('❌ Relaunch failed:', err.message);
+        // try again in 15s rather than giving up entirely
+        setTimeout(() => {
+            isRestarting = false;
+            handleBrowserDisconnect();
+        }, 15000);
+        return;
+    }
+
+    isRestarting = false;
+}
+
 async function startWhatsApp() {
     console.log('🚀 Launching WhatsApp Web...');
+
+    // prevent Chrome from using D-Bus — avoids the fatal
+    // "D-Bus connection was disconnected. Aborting." crash that happens
+    // on minimal/headless Linux servers without a persistent session bus
+    process.env.DBUS_SESSION_BUS_ADDRESS = '/dev/null';
 
     const isProduction = process.env.NODE_ENV === 'production';
     const launchOptions = {
@@ -94,6 +147,12 @@ async function startWhatsApp() {
     }
 
     browser = await puppeteer.launch(launchOptions);
+
+    // reset shutdown flag on every fresh launch, and wire up the auto-relaunch
+    isShuttingDown = false;
+    browser.off('disconnected', handleBrowserDisconnect); // avoid stacking listeners across relaunches
+    browser.on('disconnected', handleBrowserDisconnect);
+
     page = await browser.newPage();
 
     await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
@@ -143,6 +202,10 @@ async function resetPage() {
 async function startMessageListener() {
     console.log('👂 Listening for incoming messages...');
 
+    // clear any stale intervals from a previous run before starting new ones
+    messageListenerIntervals.forEach(clearInterval);
+    messageListenerIntervals = [];
+
     // track chats already processed this session
     const processedChats = new Set();
 
@@ -154,8 +217,12 @@ async function startMessageListener() {
     let lastKnownActive = false;
 
     // check for new messages every 5 seconds
-    setInterval(async () => {
+    const listenerInterval = setInterval(async () => {
         if (isUploadingStatus || isProcessingMessage) return;
+
+        // if the browser died between ticks, bail immediately —
+        // the 'disconnected' event handler is already relaunching
+        if (!browser || !browser.connected) return;
 
         try {
             // check session health first — skip this cycle entirely if logged out/restricted
@@ -166,7 +233,7 @@ async function startMessageListener() {
                     : sessionState.isQrScreen ? 'LOGGED_OUT'
                     : 'UNKNOWN';
                 console.error(`🚨 [${new Date().toISOString()}] Session dropped — reason: ${reason}`);
-                await page.screenshot({ path: `session-drop-${Date.now()}.png` });
+                try { await page.screenshot({ path: `session-drop-${Date.now()}.png` }); } catch {}
                 lastSessionOk = false;
             }
 
@@ -305,8 +372,9 @@ async function startMessageListener() {
     }, 5000);
 
     // process queued messages every 5 seconds
-    setInterval(async () => {
+    const queueInterval = setInterval(async () => {
         if (isProcessingMessage || isUploadingStatus || messageQueue.length === 0) return;
+        if (!browser || !browser.connected) return;
 
         // don't consume a queued item if the session isn't actually usable right now —
         // it stays in the queue and gets retried once the session is back
@@ -464,7 +532,7 @@ async function startMessageListener() {
 
         } catch (err) {
             console.error('⚠️ Message processing failed:', err.message);
-            await page.screenshot({ path: 'message-error.png' });
+            try { await page.screenshot({ path: 'message-error.png' }); } catch {}
             console.log('📸 Saved message-error.png');
             await resetPage();
             markActionComplete('message');
@@ -472,6 +540,9 @@ async function startMessageListener() {
             isProcessingMessage = false;
         }
     }, 5000);
+
+    // store both interval IDs so a future disconnect/restart can clear them
+    messageListenerIntervals.push(listenerInterval, queueInterval);
 }
 
 async function sendToStatus(filePath, caption = '') {
@@ -661,7 +732,18 @@ async function sendToStatus(filePath, caption = '') {
 }
 
 async function closeWhatsApp() {
-    if (browser) await browser.close();
+    // signal the disconnect handler to skip relaunching — this close is intentional
+    isShuttingDown = true;
+    messageListenerIntervals.forEach(clearInterval);
+    messageListenerIntervals = [];
+
+    if (browser) {
+        try {
+            await browser.close();
+        } catch (err) {
+            console.error('⚠️ Error closing browser:', err.message);
+        }
+    }
 }
 
 export { startWhatsApp, sendToStatus, closeWhatsApp };
