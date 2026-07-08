@@ -5,7 +5,15 @@ import cron from 'node-cron';
 
 console.log("🚀 Starting Apex Club Feed Engine [WebSocket Stream Mode]...");
 await startWhatsApp();
-connectToStream();
+
+// only connect to the tweet stream on machines handling status uploads —
+// the reply-only machine (e.g. local PC) has no need for this connection,
+// and opening a second one with the same API key causes a 403 conflict
+if (process.env.ENABLE_STATUS_UPLOAD === 'true') {
+    connectToStream();
+} else {
+    console.log('⏭️ Tweet stream connection skipped — this machine is reply-only.');
+}
 
 // heartbeat — log every 30 minutes to confirm the engine is still running
 setInterval(() => {
@@ -16,7 +24,8 @@ setInterval(() => {
 }, 30 * 60 * 1000);
 
 // skip night schedule entirely during tournament mode — run 24/7
-if (process.env.TOURNAMENT_MODE !== 'true') {
+// also skip entirely on machines that don't manage the stream rule
+if (process.env.ENABLE_STATUS_UPLOAD === 'true' && process.env.TOURNAMENT_MODE !== 'true') {
 
     // deactivate at 1am WAT
     cron.schedule('0 0 * * *', async () => {
@@ -35,7 +44,14 @@ if (process.env.TOURNAMENT_MODE !== 'true') {
 // shared shutdown logic for both signal types
 async function gracefulShutdown(signal) {
     console.log(`\n⏳ Received ${signal} — shutting down gracefully...`);
-    await deactivateRule();
+
+    // only deactivate the shared stream rule from the machine that actually
+    // owns the stream connection — deactivating it from the reply-only
+    // machine would kill the server's live stream too
+    if (process.env.ENABLE_STATUS_UPLOAD === 'true') {
+        await deactivateRule();
+    }
+
     await closeWhatsApp();
     console.log('👋 Engine stopped cleanly');
     process.exit(0);
